@@ -1,17 +1,3 @@
-#include "/pitaya_info.h" //Must be in System top Level directory
-#include <stdlib.h>
-#include <termios.h>
-#include <termios.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <linux/input.h>
-//#include <pthread.h>
-#include <sys/ioctl.h>
-#include <linux/kd.h>
-#include "pitaya_serv.h"
-
-
-
 #include <stdint.h>
 #include <signal.h>
 #include <stdio.h>
@@ -31,8 +17,12 @@
 #include <linux/if.h>
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
+#include <linux/input.h>
+#include <linux/kd.h>
 #include <sys/ioctl.h>
 
+#include "/pitaya_info.h" //Must be in System top Level directory
+#include "pitaya_serv.h"
 
 #define DEST_POS 0
 #define SOURCE_POS 6
@@ -99,7 +89,7 @@ unsigned char frame_direct_buffer[ETH_FRAME_LEN];
 unsigned int frame_len;
 unsigned char * user_pkt_data;
 
-
+uint32_t packet_count;
 
 int fdk;
 typedef struct input_event EV;
@@ -136,11 +126,7 @@ char dev_name[256];
 printf(" Keypad open \n");
 
 //open the keypad device
-//strcpy(dev_name,"/dev/input/by-id/usb-SEM_HCT_Keyboard-event-if01");
 strcpy(dev_name,"/dev/input/by-id/usb-SEM_HCT_Keyboard-event-kbd");
-
-//usb-SEM_HCT_Keyboard-event-if01
-//usb-SEM_HCT_Keyboard-event-kbd
 
 fdk = open(dev_name, O_RDONLY| O_NONBLOCK);
 if (fdk < 0) 
@@ -206,8 +192,6 @@ pkt_data_buf[512] = 230;
 
 for(int fff = 0; fff< 1024;fff++)
     user_pkt_data[fff] = pkt_data_buf[fff];
-
-
 }
 
 //---
@@ -310,17 +294,10 @@ for(int i=0;i<6;i++)
 
 //Protocol word
 frame_direct_buffer[PROTO_POS] = 0x88; //User choosable
-frame_direct_buffer[PROTO_POS+1] = 0xb5;   // This is Experiment Ethertyps 1
+frame_direct_buffer[PROTO_POS+1] = 0xb5;   // This is Experiment Ethertype 1
 return 0;
 }
 
-
-/*
-uart_send()
-{
-int err=write(tty_fd,&uart_buf, 1040); 
-}
-*/
 //---
 
 void *rx_data_handler(void *arg) //Reads data from Pitaya FPGA 
@@ -367,7 +344,9 @@ while(1) //loop forever
 
         //call FFT AFTER audio
         fft_timer++;
-        if(fft_timer > 1) //q&d fft timer test (maybe better within 'do_fft()'? )
+  //      if(fft_timer > 1) //q&d fft timer test (maybe better within 'do_fft()'? )
+
+        if(1)
             {
             fft_flag = 0;
             fft_timer = 0;
@@ -400,9 +379,14 @@ for(int nf = 0; nf < FFT_POINTS;nf++)
             do_fft();
 #endif
 
+frame_direct_buffer[32] = packet_count& 0xff;
+
  if (sendto(sdx, frame_direct_buffer, 1040, 0, (struct sockaddr*)&sax_addrll, sizeof(sax_addrll)) < 0)
         printf("Error, could not send %d \n", sizeof(sax_addrll));
 
+
+
+ packet_count++;
 
 
          //   uart_send(); //SEND PACKET !!!!!!!!!!!!!!!!!!
@@ -464,16 +448,14 @@ while(1)
   //  if(n > 0)
     if(0)
 	    {
-    printf(" Data is rxd from the Keypad N: %d \n",n);
-    printf(" Data recd: *** %d \n",n);
-    printf(" Type: %d Code: %d  Value: %d \n\n",ev.type,ev.code,ev.value);
+        printf(" Data is rxd from the Keypad N: %d \n",n);
+        printf(" Data recd: *** %d \n",n);
+        printf(" Type: %d Code: %d  Value: %d \n\n",ev.type,ev.code,ev.value);
         }
  
 
     if(ev.type == 1 && ev.value ==1)
         {
-//printf(" Type: %d Code: %d  Value: %d \n\n",ev.type,ev.code,ev.value);
-
         switch (ev.code)
             {
 
@@ -507,7 +489,6 @@ while(1)
             shifter -=1000; //temp only lob
             break;
 
-
             }
         printf(" Shifter: %d \n",shifter);
         }
@@ -518,28 +499,22 @@ while(1)
 
 void low_pass_filter(float width) 
 {
-    // parameters and simulation options
-    unsigned int h_len =   57;  // filter length (samples)
-    float        fc    = width ;  // normalized cutoff frequency
- //   unsigned int nfft  =  800;  // 'FFT' size (actually DFT)
+unsigned int h_len =   57;  // filter length (samples)
+float        fc    = width ;  // normalized cutoff frequency
+unsigned int i;
 
-    unsigned int i;
- //   unsigned int k;
+for (i=0; i < h_len; i++) {
+    // generate time vector, centered at zero
+    float t = (float)i + 0.5f - 0.5f*(float)h_len;
 
-    // design filter
- //   float h[h_len];
-    for (i=0; i < h_len; i++) {
-        // generate time vector, centered at zero
-        float t = (float)i + 0.5f - 0.5f*(float)h_len;
+    // generate sinc function (time offset in 't' prevents divide by zero)
+    float s = sinf(2*M_PI*fc*t + 1e-6f) / (2*M_PI*fc*t + 1e-6f);
 
-        // generate sinc function (time offset in 't' prevents divide by zero)
-        float s = sinf(2*M_PI*fc*t + 1e-6f) / (2*M_PI*fc*t + 1e-6f);
+    // generate Hamming window
+    float w = 0.53836 - 0.46164*cosf((2*M_PI*(float)i)/((float)(h_len-1)));
 
-        // generate Hamming window
-        float w = 0.53836 - 0.46164*cosf((2*M_PI*(float)i)/((float)(h_len-1)));
-
-        // generate composite filter coefficient
-        h[i] = s * w;
+    // generate composite filter coefficient
+    h[i] = s * w;
     }
 }
 
@@ -554,16 +529,12 @@ volatile void *cfg, *sts;
 int fd;
 uint32_t pitaya_sr_command; 
 
-
 int chan_number;
-//float in,out;
 int err;
 
-
+packet_count = 0;
 
 pkt_data_buf = & uart_buf[16];
-
-//pkt_data_buf = & uart_buf + PKT_HEADER_LEN;
 
 printf(" Starting Pitaya - Pi \n");
 
@@ -572,37 +543,8 @@ shifter = 50000; //temporary to test keyboard stuff.
 err = open_keypad();
     pthread_create(&keypad_thread_id, NULL, keypad_event, NULL);
 
-
 usleep(100000);
 
-/* 
-for(d_cnt = 0;d_cnt<1000;d_cnt++)
-        {
-        out = sinf(in);
-        in = in + (0.05 * M_PI);
-        if(in > 2* M_PI) in = 0;
-    
-        pkt_data_buf[d_cnt] = (unsigned char) (out * 32)+ 96;
-        pkt_data_buf[d_cnt] += rand() & 0x0f; //sdd noise
-        }
-
-for(int n = 0; n <200;n++)
-        pkt_data_buf[n] = 0;    
-
-for(int n = 200; n <300;n++)
-        pkt_data_buf[n] = 75;  
-
-for(int n = 300; n <400;n++)  
-        pkt_data_buf[n] = 150;  
-
-for(int n = 400; n <500;n++)
-        pkt_data_buf[n] = 225;  
-
-for(int n = 500; n <600;n++)
-        pkt_data_buf[n] = 250;  
-
-//err=write(tty_fd,pkt_data_buf, 1000);
-*/
 if(argc == 1) 
     chan_number = CHAN_NUMBER; //use default if no argument
 
@@ -634,7 +576,6 @@ pitaya_sample_rate = SAMPLE_RATE; //20000; //250000; //500000;
 pitaya_master_freq = 62500000;
 #endif
 
-
 //make coeffs
 low_pass_filter(FILTER_WIDTH);
 
@@ -642,9 +583,6 @@ unsigned int h_len=H_LEN;
    // create filter object
 //firfilt_crcf 
 q = firfilt_crcf_create(h,h_len);
-//liquid_float_complex x;    // input sample
-//liquid_float_complex y;    // output sample
-
 
 //set sample rate in pitaya FPGA
 pitaya_sr_command = pitaya_master_freq/pitaya_sample_rate; 
@@ -687,7 +625,7 @@ pitaya_xtal = (float) pitaya_master_freq*2 ; //Master F is divided by 2 in FPGA
 float fstartup_freq = CENTRE_FREQ; //5000000;
 *rx_freq = (uint32_t)floor(fstartup_freq/pitaya_xtal*(1<<30)+0.5);
 
-timeout = 0 ;// 000; //Needed - sets a keep alive
+timeout = 0 ;//sets a keep alive
 
 send_socket_setup();
 //recv_socket_setup();
@@ -700,8 +638,7 @@ if(pthread_create(&thread, NULL,rx_data_handler , NULL) < 0)
 while( 1)
     {
     //my goood stuff here
-        usleep(100);
-  //  usleep(shifter*10);
+    usleep(100);
     fft_flag =1;
     }
 
