@@ -1,0 +1,3 @@
+cat sdr_transceiver.bit > /dev/xdevcfg
+
+
