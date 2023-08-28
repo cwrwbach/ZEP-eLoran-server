@@ -109,7 +109,6 @@ int set_interface_attribs(int, int);
 int init_spi(void); 
 void reset_pi(void);
 void init_tty(void);
-void do_header();
 //===
 
 int finito(char * msg)
@@ -194,14 +193,12 @@ void do_scope()
 {
 int i;
 double see_p, see_q;
-//double log_out;
-//static double log_fft[1024];
 double hyp;
 
 int val;
 user_pkt_data = frame_direct_buffer + PKT_POS;
 
-for(i=0;i<1280; i++) //Number of samples to plot
+for(i=0;i<1056; i++) //Number of samples to plot
     {			
 	see_p = creal(pit_cpx_buf[i]); //that is normalised to N
 	see_q = cimag(pit_cpx_buf[i]);	
@@ -209,11 +206,8 @@ for(i=0;i<1280; i++) //Number of samples to plot
     val = (int) (hyp*16384);
     val*=-1;
     val +=250;
-    pkt_data_buf[i] = (uint8_t) val;
+    user_pkt_data[i]= (uint8_t)val;
     }
-
-for(int fff = 0; fff< 1024;fff++)
-    user_pkt_data[fff] = pkt_data_buf[fff];
 }
 
 
@@ -329,8 +323,7 @@ while(1) //loop forever
 
         fft_flag = 0;
         fft_timer = 0;
-        do_header();
-
+    
 #ifdef SCOPE
         // Do a low pass filter around center frequency
         for(int nf = 0; nf < FFT_POINTS;nf++)
@@ -345,7 +338,7 @@ while(1) //loop forever
 #else
         do_fft();
 #endif
-        frame_direct_buffer[32] = packet_count& 0xff;
+        frame_direct_buffer[512] = packet_count& 0xff;
 
         if (sendto(sdx, frame_direct_buffer, 1040, 0, (struct sockaddr*)&sax_addrll, sizeof(sax_addrll)) < 0)
             printf("Error, could not send %d \n", sizeof(sax_addrll));
@@ -362,37 +355,6 @@ while(1) //loop forever
 printf(" RX DATA ERROR Line %d \n",__LINE__);
 return NULL;
 }
-
-
-void do_header()
-{
-//PKT_HEADER_LEN
-//Setup the header buffer only one sync pulse needed, this to experiment  offset ???
-uart_buf[0] = 0x5a;
-uart_buf[1] = 0x0f;
-uart_buf[2] = 0xbe;
-uart_buf[3] = 0x66;
-
-
-//Packet type + pak length
-uart_buf[4] =0x33; //0x33 is temp code for fft win
-uart_buf[5] =0x00;
-uart_buf[6] = 0x04; //packet len...
-uart_buf[7] =0x0f;  //of 1024
-
-//Stamps time and sequence
-uart_buf[8] = 0x38;
-uart_buf[9] = 0x39;
-uart_buf[10] = 0x3a;
-uart_buf[11] = 0x3b; 
-
-//Chek sums and the like
-uart_buf[12] = 0x00;
-uart_buf[13] = 0x00;
-uart_buf[14] = 0x00;
-uart_buf[15] = 0x00;
-}
-
 
 void * keypad_event(void *keypad_thread_id)
 {
