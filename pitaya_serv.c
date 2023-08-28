@@ -179,19 +179,13 @@ for(i=0;i<FFT_POINTS; i++)
 //reorder the FFT. Units are 0.5*dB. 'Abs' because negative is assumed,
 // sending e.g. 250 is actually neg125, therefore minimum level is 127dB below dBFS 
 for(int i = 0;i<FFT_POINTS/2;i++)
-  //  fft_xfer_buf[i] = (uint8_t) abs(log_fft[(FFT_POINTS/2)+i])*2; //0.5dB units
-pkt_data_buf[i] = (uint8_t) abs(log_fft[(FFT_POINTS/2)+i])*2; //0.5dB units
+  pkt_data_buf[i] = (uint8_t) abs(log_fft[(FFT_POINTS/2)+i])*2; //0.5dB units
 
 for(int i = FFT_POINTS/2,j=0; i<FFT_POINTS;i++,j++)
-   // fft_xfer_buf[i] = (uint8_t)abs(log_fft[j])*2; //0.5dB units, negative assumed
-pkt_data_buf[i] = (uint8_t)abs(log_fft[j])*2; //0.5dB units, negative assumed
-
-//temporary testing stuff...
-pkt_data_buf[511] = 10;
-pkt_data_buf[512] = 230;
+    pkt_data_buf[i] = (uint8_t)abs(log_fft[j])*2; //0.5dB units, negative assumed
 
 for(int fff = 0; fff< 1024;fff++)
-    user_pkt_data[fff] = pkt_data_buf[fff];
+    user_pkt_data[fff] = pkt_data_buf[fff]; //FIXME needs sorting
 }
 
 //---
@@ -212,26 +206,14 @@ for(i=0;i<1280; i++) //Number of samples to plot
 	see_p = creal(pit_cpx_buf[i]); //that is normalised to N
 	see_q = cimag(pit_cpx_buf[i]);	
 	hyp = hypot(see_p,see_q); // sqrt sum of sqrs
-val = (int) (hyp*16384);
-val*=-1;
-val +=240;
+    val = (int) (hyp*16384);
+    val*=-1;
+    val +=250;
     pkt_data_buf[i] = (uint8_t) val;
-
+    }
 
 for(int fff = 0; fff< 1024;fff++)
     user_pkt_data[fff] = pkt_data_buf[fff];
-
-
-
- //if (sendto(sdx, frame_direct_buffer, 1040, 0, (struct sockaddr*)&sax_addrll, sizeof(sax_addrll)) < 0)
- //       printf("Error, could not send %d \n", sizeof(sax_addrll));
-
-
-//float fred = cabsf(pit_cpx_buf[1]);
-//float tom = cargf(pit_cpx_buf[1]);
- //  printf(" * %f - %d \n",hyp,val);
-	}	
-
 }
 
 
@@ -318,7 +300,6 @@ fft_flag = 0;
 
 while(1) //loop forever
     {
-   
     if(1) //timeout ==1) 
         { 
         if(*rx_cntr >= 8192)
@@ -326,9 +307,9 @@ while(1) //loop forever
             *rx_rst |= 1;
             *rx_rst &= ~1;
             }
-       // timeout++;
-      //  if(timeout ==0)
-       //         printf("\n *** TIMED OUT *** \n"); 
+        // timeout++;
+        //  if(timeout ==0)
+        //         printf("\n *** TIMED OUT *** \n"); 
 
         while(*rx_cntr < 4096) 
             usleep(500); //loop waiting for a full register (double buffered in fpga)
@@ -340,64 +321,42 @@ while(1) //loop forever
            // timeout++;
             }
     
-      //  do_audio(); // do audio before FFT
+        //  do_audio(); // do audio before FFT
 
         //call FFT AFTER audio
         fft_timer++;
-  //      if(fft_timer > 1) //q&d fft timer test (maybe better within 'do_fft()'? )
+        //  if(fft_timer > 1) //q&d fft timer test (maybe better within 'do_fft()'? )
 
-        if(1)
-            {
-            fft_flag = 0;
-            fft_timer = 0;
-            do_header();
-
-
-
-
+        fft_flag = 0;
+        fft_timer = 0;
+        do_header();
 
 #ifdef SCOPE
+        // Do a low pass filter around center frequency
+        for(int nf = 0; nf < FFT_POINTS;nf++)
+                {
+                x=pit_cpx_buf[nf];
+                firfilt_crcf_push(q, x);    // push input sample
+                firfilt_crcf_execute(q,&y); // compute output
+                pit_cpx_buf[nf] =  y;
+                } //filter
 
-//+++++++
-for(int nf = 0; nf < FFT_POINTS;nf++)
-    {
-
-    x=pit_cpx_buf[nf];
-    firfilt_crcf_push(q, x);    // push input sample
-    firfilt_crcf_execute(q,&y); // compute output
-    pit_cpx_buf[nf] =  y;
-    }
-//+++++++++
-
-
-
-
-            do_scope();
-          
+        do_scope();          
 #else
-
-            do_fft();
+        do_fft();
 #endif
+        frame_direct_buffer[32] = packet_count& 0xff;
 
-frame_direct_buffer[32] = packet_count& 0xff;
+        if (sendto(sdx, frame_direct_buffer, 1040, 0, (struct sockaddr*)&sax_addrll, sizeof(sax_addrll)) < 0)
+            printf("Error, could not send %d \n", sizeof(sax_addrll));
 
- if (sendto(sdx, frame_direct_buffer, 1040, 0, (struct sockaddr*)&sax_addrll, sizeof(sax_addrll)) < 0)
-        printf("Error, could not send %d \n", sizeof(sax_addrll));
-
-
-
- packet_count++;
-
-
-         //   uart_send(); //SEND PACKET !!!!!!!!!!!!!!!!!!
-            }
-        }
+        packet_count++;
+        } //timeout
     else 
         {
         sleep(1);
         }
-
-    }
+    }//top loop
 
 //should never get here
 printf(" RX DATA ERROR Line %d \n",__LINE__);
